@@ -1,6 +1,12 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/0ek2UV58)
 
 
+If 3 identifiers are already there and we need a 4th sentence, its working for sentence index as 2 and not 3 (indicing starts from 0)
+
+exec is working if semi colons are used not full stops.
+
+Not sure about REMACCESS to a file that user created (owner)
+
 # LangOS Network File System (NFS)
 
 A distributed file system implementation in C with support for concurrent access, sentence-level locking, and comprehensive file operations.
