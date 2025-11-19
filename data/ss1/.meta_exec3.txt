@@ -1,0 +1,12 @@
+filename=exec3.txt
+owner=user
+created=1763575677
+modified=1763575677
+accessed=1763575677
+access_user=user
+word_count=0
+char_count=0
+acl_count=1
+acl_0=user:RW
+accessed=1763575696
+access_user=user

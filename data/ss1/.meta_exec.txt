@@ -1,0 +1,14 @@
+filename=exec.txt
+owner=user
+created=1763575358
+modified=1763575358
+accessed=1763575358
+access_user=user
+word_count=0
+char_count=0
+acl_count=1
+acl_0=user:RW
+accessed=1763575400
+access_user=user
+accessed=1763575584
+access_user=user

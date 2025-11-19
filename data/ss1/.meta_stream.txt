@@ -1,0 +1,12 @@
+filename=stream.txt
+owner=user1
+created=1763573532
+modified=1763573532
+accessed=1763573532
+access_user=user1
+word_count=0
+char_count=0
+acl_count=1
+acl_0=user1:RW
+accessed=1763573590
+access_user=user1
