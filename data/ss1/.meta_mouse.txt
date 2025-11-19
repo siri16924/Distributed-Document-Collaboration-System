@@ -1,0 +1,10 @@
+filename=mouse.txt
+owner=admin
+created=1763544444
+modified=1763544444
+accessed=1763544444
+access_user=admin
+word_count=0
+char_count=0
+acl_count=1
+acl_0=admin:RW

@@ -1,0 +1,16 @@
+[NS 2025-11-19 16:21:12] NameServer started
+connect: Connection refused
+[NS 2025-11-19 16:21:14] Discovered existing file: qwert.txt (owner: user1) on SS 0
+[NS 2025-11-19 16:21:14] Discovered existing file: mouse.txt (owner: admin) on SS 0
+[NS 2025-11-19 16:21:14] Discovered existing file: test123.txt (owner: user1) on SS 0
+[NS 2025-11-19 16:21:14] Discovered existing file: test1.txt (owner: user1) on SS 0
+[NS 2025-11-19 16:21:14] Discovered existing file: abc.txt (owner: user1) on SS 0
+[NS 2025-11-19 16:21:14] Registered new StorageServer with ID 0
+[NS 2025-11-19 16:21:44] Registered client
+[NS 2025-11-19 16:21:44] Processing command: WRITE_META filename=abc.txt sentence=0 from user: user1
+[NS 2025-11-19 16:21:44] Write access granted for abc.txt to user1 (sentence 0)
+[NS 2025-11-19 16:21:44] Processing command: READ_META filename=abc.txt from user: user1
+[NS 2025-11-19 16:21:44] Processing command: QUIT from user: user1
+[NS 2025-11-19 16:21:44] Client disconnected
+[NS 2025-11-19 16:21:55] Registered client
+[NS 2025-11-19 16:21:55] Client disconnected

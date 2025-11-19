@@ -1,0 +1,1 @@
+echo ls echo "Done! " "Running diagnostics. . . "

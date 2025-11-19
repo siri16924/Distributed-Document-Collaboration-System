@@ -1,0 +1,10 @@
+filename=b.txt
+owner=user2
+created=1763562366
+modified=1763562366
+accessed=1763562366
+access_user=user2
+word_count=0
+char_count=0
+acl_count=1
+acl_0=user2:RW

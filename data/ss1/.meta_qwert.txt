@@ -1,0 +1,10 @@
+filename=qwert.txt
+owner=user1
+created=1763541197
+modified=1763541197
+accessed=1763541197
+access_user=user1
+word_count=0
+char_count=0
+acl_count=1
+acl_0=user1:RW
