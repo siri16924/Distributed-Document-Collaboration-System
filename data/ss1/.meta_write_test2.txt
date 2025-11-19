@@ -1,0 +1,16 @@
+filename=write_test2.txt
+owner=user1
+created=1763571757
+modified=1763571757
+accessed=1763571757
+access_user=user1
+word_count=0
+char_count=0
+acl_count=1
+acl_0=user1:RW
+accessed=1763571891
+access_user=user1
+accessed=1763571930
+access_user=user1
+accessed=1763572658
+access_user=user1

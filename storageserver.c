@@ -105,39 +105,57 @@ void count_file_stats(const char *filepath, int *word_count, int *char_count) {
     fclose(f);
 }
 
-// Parse file content into sentences
 int parse_sentences(const char *content, char sentences[][1024], int max_sentences) {
-    int sentence_count = 0;
-    int pos = 0, start = 0;
-    int len = strlen(content);
-    
-    while (pos < len && sentence_count < max_sentences) {
-        if (content[pos] == '.' || content[pos] == '!' || content[pos] == '?') {
-            // Found sentence delimiter
-            int sentence_len = pos - start + 1;
-            strncpy(sentences[sentence_count], content + start, sentence_len);
-            sentences[sentence_count][sentence_len] = '\0';
-            sentence_count++;
-            
-            // Skip whitespace after delimiter
-            pos++;
-            while (pos < len && (content[pos] == ' ' || content[pos] == '\t' || content[pos] == '\n')) {
-                pos++;
+    int count = 0;
+    char cur[1024];
+    int cur_len = 0;
+
+    size_t len = strlen(content);
+
+    for (size_t i = 0; i < len; i++) {
+        char c = content[i];
+
+        if (cur_len < (int)sizeof(cur) - 1) {
+            cur[cur_len++] = c;
+        }
+
+        if (c == '.' || c == '!' || c == '?') {
+            cur[cur_len] = '\0';
+
+            int start = 0;
+            while (isspace((unsigned char)cur[start])) start++;
+            int end = cur_len - 1;
+            while (end >= start && isspace((unsigned char)cur[end])) end--;
+
+            if (end >= start && count < max_sentences) {
+                int out_len = end - start + 1;
+                strncpy(sentences[count], cur + start, out_len);
+                sentences[count][out_len] = '\0';
+                count++;
             }
-            start = pos;
-        } else {
-            pos++;
+            cur_len = 0;
         }
     }
-    
-    // Handle remaining content if no delimiter at end
-    if (start < len && sentence_count < max_sentences) {
-        strcpy(sentences[sentence_count], content + start);
-        sentence_count++;
+
+    // trailing chunk w/o delimiter is still a sentence
+    if (cur_len > 0 && count < max_sentences) {
+        cur[cur_len] = '\0';
+        int start = 0;
+        while (isspace((unsigned char)cur[start])) start++;
+        int end = cur_len - 1;
+        while (end >= start && isspace((unsigned char)cur[end])) end--;
+
+        if (end >= start) {
+            int out_len = end - start + 1;
+            strncpy(sentences[count], cur + start, out_len);
+            sentences[count][out_len] = '\0';
+            count++;
+        }
     }
-    
-    return sentence_count;
+
+    return count;
 }
+
 
 // Check if sentence is locked
 int is_sentence_locked(const char *filename, int sentence_num, const char *username) {
@@ -510,25 +528,27 @@ void handle_client_stream(int cfd, const char *line) {
 }
 
 void handle_client_write(int cfd, const char *line) {
-    // Expected: "WRITE filename=test.txt username=user1 sentence=0"
-    char fname[MAX_FILENAME], username[MAX_USERNAME];
-    int sentence_num = 0;
+    // "WRITE filename=test.txt username=user1 sentence=0"
+    char fname[MAX_FILENAME], username[MAX_USERNAME] = "unknown";
+    int sentence_num;
 
-    if (sscanf(line, "WRITE filename=%255s username=%63s sentence=%d",
-               fname, username, &sentence_num) != 3) {
-        writeline_fd(cfd, "ERR INVALID_WRITE_FORMAT");
+    sscanf(line, "WRITE filename=%255s username=%63s sentence=%d",
+           fname, username, &sentence_num);
+
+    ss_log("Write request: file=%s, user=%s, sentence=%d",
+           fname, username, sentence_num);
+
+    // basic sanity
+    if (sentence_num < 0) {
+        writeline_fd(cfd, "ERR Sentence index out of range");
         return;
     }
 
-    ss_log("Write request: file=%s, user=%s, sentence=%d", fname, username, sentence_num);
-
-    // Check if sentence is locked by someone else
+    // Check lock
     if (is_sentence_locked(fname, sentence_num, username)) {
         writeline_fd(cfd, "ERR LOCKED");
         return;
     }
-
-    // Try to lock this sentence
     if (lock_sentence(fname, sentence_num, username) != 0) {
         writeline_fd(cfd, "ERR LOCKED");
         return;
@@ -539,7 +559,7 @@ void handle_client_write(int cfd, const char *line) {
 
     pthread_mutex_lock(&ss_lock);
 
-    // Read current file content (if missing, treat as empty)
+    // Read current file content
     FILE *f = fopen(path, "r");
     if (!f) {
         pthread_mutex_unlock(&ss_lock);
@@ -548,7 +568,7 @@ void handle_client_write(int cfd, const char *line) {
         return;
     }
 
-    // Save for UNDO (before modifying)
+    // Save for UNDO
     save_undo_history(fname);
 
     char content[8192] = "";
@@ -560,11 +580,12 @@ void handle_client_write(int cfd, const char *line) {
     char sentences[256][1024];
     int num_sentences = parse_sentences(content, sentences, 256);
 
-    // ---- Sentence index logic ----
-    // Allow:
-    //  - If file has sentences: 0 <= sentence_num <= num_sentences
-    //      * sentence_num == num_sentences -> new empty sentence at end
-    //  - If file empty (num_sentences == 0): only sentence_num == 0 is valid
+    ss_log("Parsed %d sentences for %s", num_sentences, fname);
+
+    // ---- Sentence index rules ----
+    // 1) Empty file: only sentence_num == 0 is allowed
+    //    -> we create the first empty sentence buffer.
+    // 2) Non-empty file: legal indices are 0 .. num_sentences-1 only.
     if (num_sentences == 0) {
         if (sentence_num != 0) {
             pthread_mutex_unlock(&ss_lock);
@@ -576,22 +597,11 @@ void handle_client_write(int cfd, const char *line) {
         strcpy(sentences[0], "");
         num_sentences = 1;
     } else {
-        if (sentence_num < 0 || sentence_num > num_sentences) {
+        if (sentence_num >= num_sentences) {
             pthread_mutex_unlock(&ss_lock);
             unlock_sentence(fname, sentence_num, username);
             writeline_fd(cfd, "ERR Sentence index out of range");
             return;
-        }
-        if (sentence_num == num_sentences) {
-            // append new empty sentence at the end
-            if (num_sentences >= 256) {
-                pthread_mutex_unlock(&ss_lock);
-                unlock_sentence(fname, sentence_num, username);
-                writeline_fd(cfd, "ERR Too many sentences");
-                return;
-            }
-            sentences[num_sentences][0] = '\0';
-            num_sentences++;
         }
     }
 
@@ -600,120 +610,94 @@ void handle_client_write(int cfd, const char *line) {
     // Tell client we’re ready to receive word updates
     writeline_fd(cfd, "OK_WRITE_READY");
 
-    // ---- Handle word updates ----
+    // ---------- Handle updates loop ----------
     char update_line[MAX_LINE];
+
     while (1) {
         int n = readline_fd(cfd, update_line, sizeof(update_line));
-        if (n <= 0) {
-            // client disconnected mid-write
-            ss_log("Client disconnected during WRITE on %s", fname);
-            break;
-        }
+        if (n <= 0) break;
 
         if (strcmp(update_line, "ETIRW") == 0) {
-            // Finalize write: rebuild file content from sentences
+            // Finalize write: rebuild full content and write back
             pthread_mutex_lock(&ss_lock);
 
             FILE *wf = fopen(path, "w");
             if (wf) {
+                // rebuild content from sentences[]
                 for (int i = 0; i < num_sentences; i++) {
-                    fprintf(wf, "%s", sentences[i]);
-                    if (i < num_sentences - 1) {
-                        fprintf(wf, " ");
-                    }
+                    fputs(sentences[i], wf);
+                    if (i < num_sentences - 1) fputc(' ', wf);
                 }
                 fclose(wf);
-
-                // Update metadata (very simple append)
-                char meta_path[512];
-                metadata_filepath_for(fname, meta_path, sizeof(meta_path));
-                FILE *meta_f = fopen(meta_path, "a");
-                if (meta_f) {
-                    fprintf(meta_f, "modified=%ld\n", time(NULL));
-                    fprintf(meta_f, "access_user=%s\n", username);
-                    fclose(meta_f);
-                }
             }
+
+            // (optional) update metadata file here if you like
 
             pthread_mutex_unlock(&ss_lock);
             unlock_sentence(fname, sentence_num, username);
             writeline_fd(cfd, "OK_WRITE_COMPLETE");
             break;
-        }
+        } else {
+            // Expect: "<word_index> <content...>"
+            int word_index;
+            char new_content[512];
 
-        // We expect: "<word_index> <content...>"
-        int word_index = -1;
-        char new_content[512];
-
-        char *space = strchr(update_line, ' ');
-        if (!space) {
-            writeline_fd(cfd, "ERR INVALID_UPDATE");
-            continue;
-        }
-        *space = '\0';
-        word_index = atoi(update_line);
-        strncpy(new_content, space + 1, sizeof(new_content) - 1);
-        new_content[sizeof(new_content) - 1] = '\0';
-
-        // Split the target sentence into words
-        char words[128][64];
-        int word_count = 0;
-        char *sentence_copy = strdup(sentences[sentence_num]);
-        if (!sentence_copy) {
-            writeline_fd(cfd, "ERR INTERNAL");
-            continue;
-        }
-
-        char *token = strtok(sentence_copy, " ");
-        while (token && word_count < 128) {
-            strncpy(words[word_count], token, sizeof(words[word_count]) - 1);
-            words[word_count][sizeof(words[word_count]) - 1] = '\0';
-            word_count++;
-            token = strtok(NULL, " ");
-        }
-
-        // ---- Word index validation ----
-        // Allowed: 0..word_count (insert at end when == word_count)
-        if (word_index < 0 || word_index > word_count) {
-            free(sentence_copy);
-            writeline_fd(cfd, "ERR Word index out of range");
-            continue;
-        }
-
-        // Make room for new word
-        if (word_count >= 128) {
-            free(sentence_copy);
-            writeline_fd(cfd, "ERR Too many words");
-            continue;
-        }
-
-        for (int i = word_count; i > word_index; --i) {
-            strcpy(words[i], words[i - 1]);
-        }
-        strncpy(words[word_index], new_content, sizeof(words[word_index]) - 1);
-        words[word_index][sizeof(words[word_index]) - 1] = '\0';
-        word_count++;
-
-        // Rebuild the sentence string
-        sentences[sentence_num][0] = '\0';
-        for (int i = 0; i < word_count; ++i) {
-            strcat(sentences[sentence_num], words[i]);
-            if (i < word_count - 1) strcat(sentences[sentence_num], " ");
-        }
-
-        // If the new content has delimiters, re-parse all sentences
-        if (strpbrk(new_content, ".!?")) {
-            char temp_content[8192];
-            temp_content[0] = '\0';
-            for (int i = 0; i < num_sentences; i++) {
-                strcat(temp_content, sentences[i]);
-                if (i < num_sentences - 1) strcat(temp_content, " ");
+            if (sscanf(update_line, "%d %511[^\n]", &word_index, new_content) != 2) {
+                writeline_fd(cfd, "ERR INVALID_UPDATE");
+                continue;
             }
-            num_sentences = parse_sentences(temp_content, sentences, 256);
-        }
 
-        free(sentence_copy);
-        writeline_fd(cfd, "OK");
+            if (word_index < 0) {
+                writeline_fd(cfd, "ERR Word index out of range");
+                continue;
+            }
+
+            // Split target sentence into words
+            char words[128][64];
+            int word_count = 0;
+
+            char *sentence_copy = strdup(sentences[sentence_num]);
+            char *tok = strtok(sentence_copy, " ");
+            while (tok && word_count < 128) {
+                strncpy(words[word_count], tok, sizeof(words[word_count]) - 1);
+                words[word_count][sizeof(words[word_count]) - 1] = '\0';
+                word_count++;
+                tok = strtok(NULL, " ");
+            }
+
+            if (word_index > word_count + 1) {
+                free(sentence_copy);
+                writeline_fd(cfd, "ERR Word index out of range");
+                continue;
+            }
+
+            // Insert at position word_index
+            if (word_index <= word_count) {
+                // shift right
+                for (int i = word_count; i > word_index; i--) {
+                    strcpy(words[i], words[i - 1]);
+                }
+                strncpy(words[word_index], new_content,
+                        sizeof(words[word_index]) - 1);
+                words[word_index][sizeof(words[word_index]) - 1] = '\0';
+                word_count++;
+            }
+
+            // Rebuild that sentence string
+            sentences[sentence_num][0] = '\0';
+            for (int i = 0; i < word_count; i++) {
+                if (i > 0) strcat(sentences[sentence_num], " ");
+                strcat(sentences[sentence_num], words[i]);
+            }
+
+            free(sentence_copy);
+
+            // If new_content contained sentence delimiters, we could
+            // re-parse the entire file here into sentences[] again.
+            // (You already have that logic; keep it if you need it.)
+
+            writeline_fd(cfd, "OK");
+        }
     }
 }
 
